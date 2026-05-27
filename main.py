@@ -54,7 +54,19 @@ def _cargar_configuracion() -> _Config:
     )
 
 
+def validar_html(html: str) -> bool:
+    return bool(html.strip()) and html.strip().startswith("<")
+
+
 def main() -> None:
+    try:
+        _ejecutar_pipeline()
+    except Exception:
+        logger.exception("Error fatal en el pipeline")
+        sys.exit(1)
+
+
+def _ejecutar_pipeline() -> None:
     configurar_logging()
     load_dotenv()
     config = _cargar_configuracion()
@@ -81,6 +93,10 @@ def main() -> None:
     html_boletin = generador.generar_resumen(
         texto_diario, fecha=hoy.strftime("%d/%m/%Y")
     )
+    if not validar_html(html_boletin):
+        logger.error("El HTML generado por Gemini no es válido: %s", html_boletin[:200])
+        sys.exit(1)
+
     notificador.enviar_boletin(html_boletin, fecha=hoy)
     logger.info("Pipeline completado exitosamente para %s", hoy.isoformat())
 

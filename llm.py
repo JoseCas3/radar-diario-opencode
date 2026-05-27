@@ -51,7 +51,7 @@ entidades mencionadas]</p>
 
 <h2>[MINISTERIO / ENTIDAD]</h2>
 <h3>[Título descriptivo de la noticia]</h3>
-<p>[Resumen objetivo de 2-3 líneas] <em>(Acuerdo N° XXX, p. YY)</em></h3>
+<p>[Resumen objetivo de 2-3 líneas] <em>(Acuerdo N° XXX, p. YY)</em></p>
 
 Repite el bloque h2/h3/p por cada entidad. Agrupa las noticias por ministerio o \
 entidad. Si una entidad tiene múltiples noticias, agrúpalas bajo el mismo h2.
@@ -105,7 +105,7 @@ class GeneradorResumenes:
                 response = self._cliente.models.generate_content(
                     model=self._modelo, contents=prompt, config=config
                 )
-                if response.text is None:
+                if not response.text:
                     raise ValueError("Gemini devolvió una respuesta vacía")
                 logger.info(
                     "Resumen generado: %d caracteres (intento %d/%d)",

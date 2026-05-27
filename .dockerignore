@@ -1,0 +1,12 @@
+venv/
+.git/
+__pycache__/
+.pytest_cache/
+tests/
+.env
+.env.example
+AGENTS.md
+.coverage
+*.pyc
+.dockerignore
+.gitignore

@@ -4,7 +4,10 @@ __pycache__/
 .pytest_cache/
 .coverage
 *.pyc
+*.log
 .idea/
 .vscode/
 .agent/
 .opencode/
+.agents/
+skills-lock.json

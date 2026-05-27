@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from main import _cargar_configuracion, configurar_logging, _Config
+from main import _cargar_configuracion, configurar_logging, validar_html, _Config
 
 
 class TestConfigurarLogging:
@@ -65,3 +65,17 @@ class TestCargarConfiguracion:
 
         with pytest.raises(SystemExit):
             _cargar_configuracion()
+
+
+class TestValidarHtml:
+    def test_html_valido(self):
+        assert validar_html("<h1>Radar Político</h1>") is True
+
+    def test_html_vacio(self):
+        assert validar_html("") is False
+
+    def test_html_solo_espacios(self):
+        assert validar_html("   ") is False
+
+    def test_html_sin_tags(self):
+        assert validar_html("Esto no es HTML") is False

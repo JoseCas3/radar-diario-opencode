@@ -22,8 +22,9 @@ class TestEmailNotifier:
             )
             resultado = notificador.enviar_boletin(html_boletin_mock)
 
-        assert resultado is True
+        assert resultado is None
         mock_smtp.starttls.assert_called_once()
+        mock_smtp.ehlo.assert_called_once()
         mock_smtp.login.assert_called_once_with("remitente@test.com", "password123")
         mock_smtp.send_message.assert_called_once()
         mensaje = mock_smtp.send_message.call_args[0][0]
@@ -72,7 +73,9 @@ class TestEmailNotifier:
                 notificador.enviar_boletin(html_boletin_mock)
 
     def test_error_conexion_smtp(self, html_boletin_mock):
-        with patch("email_sender.smtplib.SMTP") as mock_smtp_class:
+        with patch("email_sender.smtplib.SMTP") as mock_smtp_class, patch(
+            "email_sender.time.sleep"
+        ):
             mock_smtp_class.side_effect = OSError("Connection refused")
 
             notificador = EmailNotifier(
@@ -82,7 +85,9 @@ class TestEmailNotifier:
                 notificador.enviar_boletin(html_boletin_mock)
 
     def test_error_smtp_generico(self, html_boletin_mock):
-        with patch("email_sender.smtplib.SMTP") as mock_smtp_class:
+        with patch("email_sender.smtplib.SMTP") as mock_smtp_class, patch(
+            "email_sender.time.sleep"
+        ):
             mock_smtp = MagicMock()
             mock_smtp.send_message.side_effect = smtplib.SMTPException(
                 "Error al enviar"

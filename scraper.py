@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 
 import requests
 from PyPDF2 import PdfReader
+from PyPDF2.errors import PyPdfError
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.diariooficial.gob.sv"
 TIMEOUT_SEGUNDOS = 30
+MAX_REINTENTOS = 3
+BACKOFF_INICIAL = 2
 
 
 @dataclass
@@ -74,14 +78,13 @@ class DiarioOficialScraper:
 
     def _obtener_meses_disponibles(self, year: int) -> list[int]:
         try:
-            response = self._sesion.post(
+            respuesta = self._reintentar_http(
+                "meses-disponibles",
                 f"{self._base_url}/api/v1/meses-disponibles",
+                "POST",
                 json={"year": year},
-                timeout=self._timeout,
             )
-            response.raise_for_status()
-            datos = response.json()
-            return [int(item["month"]) for item in datos]
+            return [int(item["month"]) for item in respuesta.json()]
         except (requests.RequestException, KeyError, ValueError) as e:
             logger.error(
                 "Error al consultar meses disponibles año=%d: %s", year, e
@@ -92,14 +95,14 @@ class DiarioOficialScraper:
         self, year: int, month: int
     ) -> list[PublicacionDiario]:
         try:
-            response = self._sesion.post(
+            respuesta = self._reintentar_http(
+                "diarios-disponibles",
                 f"{self._base_url}/api/v1/diarios-disponibles",
+                "POST",
                 data={"year": str(year), "month": str(month)},
-                timeout=self._timeout,
             )
-            response.raise_for_status()
-            datos = response.json()
-        except requests.RequestException as e:
+            datos = respuesta.json()
+        except (requests.RequestException, KeyError, ValueError, TypeError) as e:
             logger.error(
                 "Error al consultar diarios disponibles año=%d mes=%d: %s",
                 year,
@@ -119,13 +122,45 @@ class DiarioOficialScraper:
     def _descargar_pdf(self, id_publicacion: int) -> bytes:
         url = f"{self._base_url}/seleccion/{id_publicacion}"
         try:
-            response = self._sesion.get(url, timeout=self._timeout)
-            response.raise_for_status()
-            logger.info("PDF descargado: %d bytes", len(response.content))
-            return response.content
+            respuesta = self._reintentar_http(
+                "descargar-pdf", url, "GET"
+            )
+            logger.info("PDF descargado: %d bytes", len(respuesta.content))
+            return respuesta.content
         except requests.RequestException as e:
             logger.error("Error al descargar PDF ID=%d: %s", id_publicacion, e)
             raise
+
+    def _reintentar_http(self, operacion: str, url: str, metodo: str, **kwargs):
+        ultima_excepcion: Exception | None = None
+        for intento in range(1, MAX_REINTENTOS + 1):
+            try:
+                respuesta = self._sesion.request(
+                    metodo, url, timeout=self._timeout, **kwargs
+                )
+                respuesta.raise_for_status()
+                return respuesta
+            except requests.RequestException as e:
+                ultima_excepcion = e
+                if intento < MAX_REINTENTOS:
+                    espera = BACKOFF_INICIAL**intento
+                    logger.warning(
+                        "Error en %s (intento %d/%d): %s. Reintentando en %ds...",
+                        operacion,
+                        intento,
+                        MAX_REINTENTOS,
+                        e,
+                        espera,
+                    )
+                    time.sleep(espera)
+                else:
+                    logger.error(
+                        "Fallaron los %d intentos en %s: %s",
+                        MAX_REINTENTOS,
+                        operacion,
+                        e,
+                    )
+        raise ultima_excepcion
 
     def _extraer_texto_pdf(self, pdf_bytes: bytes) -> str:
         try:
@@ -137,6 +172,6 @@ class DiarioOficialScraper:
                     if texto:
                         paginas_texto.append(texto)
                 return "\n".join(paginas_texto)
-        except Exception as e:
+        except (ValueError, TypeError, OSError, PyPdfError) as e:
             logger.error("Error al extraer texto del PDF: %s", e)
             raise

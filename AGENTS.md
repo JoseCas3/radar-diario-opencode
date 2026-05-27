@@ -97,18 +97,17 @@ Ejecutar: `python main.py`
 
 ## Estado actual del código
 
-- **scraper.py**: ROTO — usa placeholder hardcodeado, BeautifulSoup innecesario, PDF dummy. **Necesita reescritura completa** para usar API real.
-- **llm.py**: Funcional — Gemini 2.5 Flash, reintentos con backoff. `load_dotenv()` duplicado (mover a main.py).
-- **email_sender.py**: Funcional — SMTP Gmail. `load_dotenv()` duplicado (mover a main.py).
-- **main.py**: Orquesta, pero usa `print()` en vez de `logging`.
-- **CI/CD**: GitHub Actions funcional. Dockerfile Alpine correcto.
-- **Tests**: 0 — crear suite completa en `tests/`.
+- **scraper.py**: Funcional — API real (`meses-disponibles`, `diarios-disponibles`, `/seleccion/{Id}`), PyPDF2 con soporte AES, reintentos HTTP con backoff exponencial (3 intentos), sin BeautifulSoup.
+- **llm.py**: Funcional — Gemini 2.5 Flash, prompt anti-alucinación con `temperature=0.1`, reintentos con backoff, truncado a 800K caracteres, validación de respuesta vacía.
+- **email_sender.py**: Funcional — SMTP Gmail con reintentos y backoff, `ehlo()` post-TLS, MIME multipart con HTML + texto plano alternativo.
+- **main.py**: Orquesta con `logging` estructurado, `load_dotenv()` solo aquí, validación HTML del boletín, try/except global con `logger.exception`.
+- **CI/CD**: GitHub Actions con cron diario 5:00 AM SV, paso de tests antes del build, `concurrency` para evitar duplicados, timeout 15 min.
+- **Docker**: Alpine 3.11, `PYTHONUNBUFFERED=1`, `.dockerignore`, `*.py` wildcard.
+- **Tests**: 41 tests en 5 archivos (`test_scraper.py`, `test_llm.py`, `test_email.py`, `test_main.py`, `conftest.py`), 92% de cobertura. Sin side effects al importar.
 
-## Próximas tareas prioritarias
+## Próximas tareas (opcionales)
 
-1. **Reconstruir scraper** — eliminar BeautifulSoup, implementar API real, devolver `None` si no hay publicación hoy.
-2. **Migrar a logging** — reemplazar `print()` en los 4 archivos.
-3. **Mover `load_dotenv()`** solo a `main.py`; los módulos reciben config en `__init__`.
-4. **Escribir tests** — `test_scraper.py`, `test_llm.py`, `test_email.py`.
-5. **Mejorar prompt LLM** — secciones explícitas, validar HTML de salida.
-6. **Verificación SMTP** — probar conectividad antes de enviar.
+1. **Soporte para backfill** — flag `--fecha YYYY-MM-DD` en `main.py` para procesar fechas pasadas.
+2. **Notificación de fallos** — alerta por email alternativo o GitHub Issue si el pipeline falla.
+3. **Estrategia de truncado inteligente** — preservar secciones del final del PDF en vez de cortar al inicio.
+4. **Métricas de uso de Gemini** — loguear tokens consumidos por corrida.

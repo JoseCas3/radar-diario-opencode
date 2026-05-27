@@ -87,6 +87,7 @@ class GeneradorResumenes:
         return self._intentar_generar(prompt_usuario, config)
 
     def _truncar_texto(self, texto: str) -> str:
+        """Trunca el texto si excede MAX_CARACTERES para no sobrepasar el contexto del modelo."""
         if len(texto) <= MAX_CARACTERES:
             return texto
         logger.warning(
@@ -99,6 +100,7 @@ class GeneradorResumenes:
     def _intentar_generar(
         self, prompt: str, config: types.GenerateContentConfig
     ) -> str:
+        """Llama a Gemini con reintentos y backoff. Lanza RuntimeError si todos fallan."""
         ultima_excepcion: Exception | None = None
         for intento in range(1, self._max_reintentos + 1):
             try:

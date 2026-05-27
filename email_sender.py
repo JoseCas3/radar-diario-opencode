@@ -50,6 +50,7 @@ class EmailNotifier:
         self._intentar_enviar(mensaje, asunto)
 
     def _intentar_enviar(self, mensaje: MIMEMultipart, asunto: str) -> None:
+        """Envía el mensaje SMTP con reintentos ante errores transitorios de red."""
         ultima_excepcion: Exception | None = None
         for intento in range(1, MAX_REINTENTOS + 1):
             try:

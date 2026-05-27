@@ -132,6 +132,7 @@ class DiarioOficialScraper:
             raise
 
     def _reintentar_http(self, operacion: str, url: str, metodo: str, **kwargs):
+        """Ejecuta una petición HTTP con reintentos y backoff exponencial."""
         ultima_excepcion: Exception | None = None
         for intento in range(1, MAX_REINTENTOS + 1):
             try:
@@ -163,6 +164,7 @@ class DiarioOficialScraper:
         raise ultima_excepcion
 
     def _extraer_texto_pdf(self, pdf_bytes: bytes) -> str:
+        """Extrae el texto de un PDF en memoria usando PyPDF2."""
         try:
             with BytesIO(pdf_bytes) as stream:
                 reader = PdfReader(stream)

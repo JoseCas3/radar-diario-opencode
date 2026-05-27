@@ -25,6 +25,7 @@ class _Config:
 
 
 def configurar_logging() -> None:
+    """Configura logging estructurado: timestamp, nivel, módulo, mensaje."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -34,6 +35,7 @@ def configurar_logging() -> None:
 
 
 def _cargar_configuracion() -> _Config:
+    """Carga variables de entorno y valida las requeridas. Termina con exit(1) si faltan."""
     gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     email_user = os.getenv("EMAIL_USER", "")
     email_password = os.getenv("EMAIL_PASSWORD", "")
@@ -55,6 +57,7 @@ def _cargar_configuracion() -> _Config:
 
 
 def validar_html(html: str) -> bool:
+    """Verifica que el HTML no esté vacío y comience con '<'."""
     return bool(html.strip()) and html.strip().startswith("<")
 
 
@@ -67,6 +70,7 @@ def main() -> None:
 
 
 def _ejecutar_pipeline() -> None:
+    """Orquesta extracción → resumen → envío del boletín del Diario Oficial de hoy."""
     configurar_logging()
     load_dotenv()
     config = _cargar_configuracion()

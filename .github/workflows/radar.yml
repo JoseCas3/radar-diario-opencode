@@ -2,7 +2,7 @@ name: Radar Diario Oficial
 
 on:
   schedule:
-    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 concurrency: radar-pipeline

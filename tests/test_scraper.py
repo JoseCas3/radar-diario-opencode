@@ -230,3 +230,92 @@ class TestDiarioOficialScraper:
         else:
             assert resultado is not None
             assert resultado.id == esperado
+
+    def test_obtener_texto_ultima_publicacion_exitoso(self):
+        with patch("scraper.requests.Session"), patch(
+            "scraper.PdfReader"
+        ) as mock_reader_class:
+            mock_page = MagicMock()
+            mock_page.extract_text.return_value = "Texto del último diario."
+            mock_reader_class.return_value.pages = [mock_page]
+
+            scraper = DiarioOficialScraper()
+            scraper._reintentar_http = MagicMock(
+                side_effect=[
+                    crear_mock_response(json_data=[{"month": "5"}]),
+                    crear_mock_response(
+                        json_data=[
+                            {
+                                "Id": 40,
+                                "FechaInicio": "2026-05-10",
+                                "NombreArchivo": "diario-2026-05-10.pdf",
+                            },
+                            {
+                                "Id": 42,
+                                "FechaInicio": "2026-05-14",
+                                "NombreArchivo": "diario-2026-05-14.pdf",
+                            },
+                            {
+                                "Id": 41,
+                                "FechaInicio": "2026-05-12",
+                                "NombreArchivo": "diario-2026-05-12.pdf",
+                            },
+                        ]
+                    ),
+                    crear_mock_response(content=b"fake-pdf"),
+                ]
+            )
+            resultado = scraper.obtener_texto_ultima_publicacion()
+
+        assert resultado is not None
+        texto, fecha_pub = resultado
+        assert texto == "Texto del último diario."
+        assert fecha_pub == date(2026, 5, 14)
+
+    def test_obtener_texto_ultima_publicacion_sin_publicaciones(self):
+        with patch("scraper.requests.Session"):
+            scraper = DiarioOficialScraper()
+            scraper._reintentar_http = MagicMock(
+                side_effect=[
+                    crear_mock_response(json_data=[]),
+                    crear_mock_response(json_data=[]),
+                ]
+            )
+            resultado = scraper.obtener_texto_ultima_publicacion()
+
+        assert resultado is None
+
+    def test_buscar_ultima_publicacion_selecciona_mas_reciente(self):
+        with patch("scraper.requests.Session"):
+            scraper = DiarioOficialScraper()
+            scraper._reintentar_http = MagicMock(
+                side_effect=[
+                    crear_mock_response(
+                        json_data=[{"month": "3"}, {"month": "5"}, {"month": "1"}]
+                    ),
+                    crear_mock_response(
+                        json_data=[
+                            {
+                                "Id": 10,
+                                "FechaInicio": "2026-05-05",
+                                "NombreArchivo": "diario-05.pdf",
+                            },
+                            {
+                                "Id": 15,
+                                "FechaInicio": "2026-05-20",
+                                "NombreArchivo": "diario-20.pdf",
+                            },
+                            {
+                                "Id": 12,
+                                "FechaInicio": "2026-05-14",
+                                "NombreArchivo": "diario-14.pdf",
+                            },
+                        ]
+                    ),
+                ]
+            )
+            resultado = scraper._buscar_ultima_publicacion(2026)
+
+        assert resultado is not None
+        assert resultado.id == 15
+        assert resultado.fecha_inicio == "2026-05-20"

@@ -55,6 +55,49 @@ class DiarioOficialScraper:
         logger.info("Texto extraído del Diario Oficial: %d caracteres", len(texto))
         return texto
 
+    def obtener_texto_ultima_publicacion(self) -> tuple[str, date] | None:
+        """Obtiene el texto de la publicación más reciente disponible.
+
+        Retorna una tupla (texto, fecha_publicacion) o None si no hay publicaciones.
+        """
+        hoy = date.today()
+        publicacion = self._buscar_ultima_publicacion(hoy.year)
+        if publicacion is None and hoy.year > 2020:
+            publicacion = self._buscar_ultima_publicacion(hoy.year - 1)
+        if publicacion is None:
+            logger.info("No se encontró ninguna publicación disponible")
+            return None
+        fecha_pub = date.fromisoformat(publicacion.fecha_inicio)
+        pdf_bytes = self._descargar_pdf(publicacion.id)
+        texto = self._extraer_texto_pdf(pdf_bytes)
+        logger.info(
+            "Texto extraído de última publicación (%s): %d caracteres",
+            publicacion.fecha_inicio,
+            len(texto),
+        )
+        return texto, fecha_pub
+
+    def _buscar_ultima_publicacion(self, year: int) -> PublicacionDiario | None:
+        try:
+            meses = self._obtener_meses_disponibles(year)
+        except Exception:
+            logger.warning("No se pudieron obtener meses del año %d", year)
+            return None
+        if not meses:
+            return None
+        ultimo_mes = max(meses)
+        diarios = self._obtener_diarios_disponibles(year, ultimo_mes)
+        if not diarios:
+            return None
+        diarios_ordenados = sorted(diarios, key=lambda d: d.fecha_inicio, reverse=True)
+        ultima = diarios_ordenados[0]
+        logger.info(
+            "Última publicación encontrada: ID=%s, %s",
+            ultima.id,
+            ultima.nombre_archivo,
+        )
+        return ultima
+
     def _buscar_publicacion(self, fecha_obj: date) -> PublicacionDiario | None:
         meses = self._obtener_meses_disponibles(fecha_obj.year)
         if fecha_obj.month not in meses:

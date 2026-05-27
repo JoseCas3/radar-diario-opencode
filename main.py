@@ -87,22 +87,29 @@ def _ejecutar_pipeline() -> None:
     logger.info("Iniciando pipeline para %s", hoy.isoformat())
 
     texto_diario = scraper.obtener_texto_diario(hoy)
+    fecha_publicacion = hoy
+
     if texto_diario is None:
         logger.info(
-            "No se encontró publicación para hoy (%s). Finalizando sin enviar.",
+            "No se encontró publicación para hoy (%s). Buscando última disponible...",
             hoy.isoformat(),
         )
-        return
+        resultado = scraper.obtener_texto_ultima_publicacion()
+        if resultado is None:
+            logger.info("No hay publicaciones disponibles. Finalizando sin enviar.")
+            return
+        texto_diario, fecha_publicacion = resultado
+        logger.info("Usando publicación del %s", fecha_publicacion.isoformat())
 
     html_boletin = generador.generar_resumen(
-        texto_diario, fecha=hoy.strftime("%d/%m/%Y")
+        texto_diario, fecha=fecha_publicacion.strftime("%d/%m/%Y")
     )
     if not validar_html(html_boletin):
         logger.error("El HTML generado por Gemini no es válido: %s", html_boletin[:200])
         sys.exit(1)
 
-    notificador.enviar_boletin(html_boletin, fecha=hoy)
-    logger.info("Pipeline completado exitosamente para %s", hoy.isoformat())
+    notificador.enviar_boletin(html_boletin, fecha=fecha_publicacion)
+    logger.info("Pipeline completado exitosamente para %s", fecha_publicacion.isoformat())
 
 
 if __name__ == "__main__":

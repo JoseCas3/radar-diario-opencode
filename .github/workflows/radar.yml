@@ -18,10 +18,9 @@ jobs:
         run: docker build -t radar-diario .
 
       - name: Run pipeline
-        run: >
-          docker run --rm
-          -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
-          -e EMAIL_USER="${{ secrets.EMAIL_USER }}"
-          -e EMAIL_PASSWORD="${{ secrets.EMAIL_PASSWORD }}"
-          -e EMAIL_DESTINATARIO="${{ secrets.EMAIL_DESTINATARIO }}"
-          radar-diario
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
+        run: docker run --rm -e GEMINI_API_KEY -e EMAIL_USER -e EMAIL_PASSWORD -e EMAIL_DESTINATARIO radar-diario

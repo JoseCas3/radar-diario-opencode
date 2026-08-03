@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import logging
 import os
+from argparse import ArgumentTypeError
 from unittest.mock import patch
 
 import pytest
 
-from main import _cargar_configuracion, configurar_logging, validar_html, _Config
+from main import (
+    _cargar_configuracion,
+    configurar_logging,
+    validar_html,
+    _Config,
+    _parsear_fecha,
+)
 
 
 class TestConfigurarLogging:
@@ -24,7 +31,7 @@ class TestCargarConfiguracion:
     def test_variables_requeridas_exitoso(self, monkeypatch):
         monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
         monkeypatch.setenv("EMAIL_USER", "user@test.com")
-        monkeypatch.setenv("EMAIL_PASSWORD", "password")
+        monkeypatch.setenv("EMAIL_PASSWORD", "abcdefghijklmnop")
         monkeypatch.delenv("EMAIL_DESTINATARIO", raising=False)
         monkeypatch.delenv("BASE_URL", raising=False)
 
@@ -32,14 +39,14 @@ class TestCargarConfiguracion:
 
         assert config.gemini_api_key == "fake-key"
         assert config.email_user == "user@test.com"
-        assert config.email_password == "password"
+        assert config.email_password == "abcdefghijklmnop"
         assert config.email_destinatario == "user@test.com"
         assert config.base_url == "https://www.diariooficial.gob.sv"
 
     def test_variables_opcionales_personalizadas(self, monkeypatch):
         monkeypatch.setenv("GEMINI_API_KEY", "key")
         monkeypatch.setenv("EMAIL_USER", "u@t.com")
-        monkeypatch.setenv("EMAIL_PASSWORD", "p")
+        monkeypatch.setenv("EMAIL_PASSWORD", "abcdefghijklmnop")
         monkeypatch.setenv("EMAIL_DESTINATARIO", "editor@medio.sv")
         monkeypatch.setenv("BASE_URL", "https://api.custom.sv")
 
@@ -66,6 +73,16 @@ class TestCargarConfiguracion:
         with pytest.raises(SystemExit):
             _cargar_configuracion()
 
+    def test_password_corto_termina(self, monkeypatch):
+        monkeypatch.setenv("GEMINI_API_KEY", "key")
+        monkeypatch.setenv("EMAIL_USER", "u@t.com")
+        monkeypatch.setenv("EMAIL_PASSWORD", "12345")
+
+        with pytest.raises(SystemExit) as exc:
+            _cargar_configuracion()
+
+        assert exc.value.code == 1
+
 
 class TestValidarHtml:
     def test_html_valido(self):
@@ -79,3 +96,12 @@ class TestValidarHtml:
 
     def test_html_sin_tags(self):
         assert validar_html("Esto no es HTML") is False
+
+
+class TestParsearFecha:
+    def test_fecha_valida(self):
+        assert _parsear_fecha("2026-07-14").isoformat() == "2026-07-14"
+
+    def test_fecha_invalida(self):
+        with pytest.raises(ArgumentTypeError):
+            _parsear_fecha("14/07/2026")

@@ -1,14 +1,30 @@
 from __future__ import annotations
 
 import logging
-import re
 import smtplib
 import time
 from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html.parser import HTMLParser
 
 logger = logging.getLogger(__name__)
+
+
+class _ExtractorTextoPlano(HTMLParser):
+    """Extrae texto plano de un HTML ignorando etiquetas y normalizando el contenido."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._partes: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        texto = data.strip()
+        if texto:
+            self._partes.append(texto)
+
+    def texto(self) -> str:
+        return " ".join(self._partes)
 
 SMTP_SERVIDOR = "smtp.gmail.com"
 SMTP_PUERTO = 587
@@ -39,7 +55,9 @@ class EmailNotifier:
         fecha_obj = fecha or date.today()
         asunto = f"Radar Político — Diario Oficial {fecha_obj.strftime('%d/%m/%Y')}"
 
-        texto_plano = re.sub(r"<[^>]+>", "", html_contenido).strip()
+        extractor = _ExtractorTextoPlano()
+        extractor.feed(html_contenido)
+        texto_plano = extractor.texto()
         mensaje = MIMEMultipart("alternative")
         mensaje["Subject"] = asunto
         mensaje["From"] = self._smtp_user
@@ -66,10 +84,13 @@ class EmailNotifier:
                 )
                 return
             except smtplib.SMTPAuthenticationError as e:
-                logger.error("Error de autenticación SMTP: credenciales inválidas")
+                logger.error(
+                    "Error de autenticación SMTP: verifica EMAIL_USER y EMAIL_PASSWORD "
+                    "(app password de Gmail, requiere 2FA). Detalle: %s",
+                    e,
+                )
                 raise
             except (smtplib.SMTPException, OSError) as e:
-                ultima_excepcion = e
                 if intento < MAX_REINTENTOS:
                     espera = BACKOFF_INICIAL**intento
                     logger.warning(
@@ -86,4 +107,4 @@ class EmailNotifier:
                         MAX_REINTENTOS,
                         e,
                     )
-        raise ultima_excepcion
+                    raise

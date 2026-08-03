@@ -24,6 +24,26 @@ jobs:
       - name: Build image
         run: docker build -t radar-diario .
 
+      - name: Validar secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        run: |
+          faltantes=0
+          for var in GEMINI_API_KEY EMAIL_USER EMAIL_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              echo "ERROR: Secret $var está vacío."
+              echo "       Configúralo en Settings > Secrets and variables > Actions."
+              faltantes=$((faltantes + 1))
+            fi
+          done
+          if [ "$faltantes" -gt 0 ]; then
+            echo "Abortando: faltan $faltantes secret(s) requerido(s)."
+            exit 1
+          fi
+          echo "OK: todos los secrets requeridos están presentes."
+
       - name: Run pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

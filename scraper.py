@@ -85,18 +85,21 @@ class DiarioOficialScraper:
             return None
         if not meses:
             return None
-        ultimo_mes = max(meses)
-        diarios = self._obtener_diarios_disponibles(year, ultimo_mes)
-        if not diarios:
-            return None
-        diarios_ordenados = sorted(diarios, key=lambda d: d.fecha_inicio, reverse=True)
-        ultima = diarios_ordenados[0]
-        logger.info(
-            "Última publicación encontrada: ID=%s, %s",
-            ultima.id,
-            ultima.nombre_archivo,
-        )
-        return ultima
+        for mes in sorted(meses, reverse=True):
+            diarios = self._obtener_diarios_disponibles(year, mes)
+            if not diarios:
+                logger.info("Mes %d/%d sin diarios disponibles", mes, year)
+                continue
+            ultima = sorted(
+                diarios, key=lambda d: d.fecha_inicio, reverse=True
+            )[0]
+            logger.info(
+                "Última publicación encontrada: ID=%s, %s",
+                ultima.id,
+                ultima.nombre_archivo,
+            )
+            return ultima
+        return None
 
     def _buscar_publicacion(self, fecha_obj: date) -> PublicacionDiario | None:
         meses = self._obtener_meses_disponibles(fecha_obj.year)
@@ -176,7 +179,6 @@ class DiarioOficialScraper:
 
     def _reintentar_http(self, operacion: str, url: str, metodo: str, **kwargs):
         """Ejecuta una petición HTTP con reintentos y backoff exponencial."""
-        ultima_excepcion: Exception | None = None
         for intento in range(1, MAX_REINTENTOS + 1):
             try:
                 respuesta = self._sesion.request(
@@ -185,7 +187,6 @@ class DiarioOficialScraper:
                 respuesta.raise_for_status()
                 return respuesta
             except requests.RequestException as e:
-                ultima_excepcion = e
                 if intento < MAX_REINTENTOS:
                     espera = BACKOFF_INICIAL**intento
                     logger.warning(
@@ -204,7 +205,7 @@ class DiarioOficialScraper:
                         operacion,
                         e,
                     )
-        raise ultima_excepcion
+                    raise
 
     def _extraer_texto_pdf(self, pdf_bytes: bytes) -> str:
         """Extrae el texto de un PDF en memoria usando PyPDF2."""

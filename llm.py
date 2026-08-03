@@ -87,15 +87,27 @@ class GeneradorResumenes:
         return self._intentar_generar(prompt_usuario, config)
 
     def _truncar_texto(self, texto: str) -> str:
-        """Trunca el texto si excede MAX_CARACTERES para no sobrepasar el contexto del modelo."""
+        """Trunca el texto conservando cabecera y cola si excede MAX_CARACTERES."""
         if len(texto) <= MAX_CARACTERES:
             return texto
+        separador = "\n[...sección intermedia omitida...]\n"
+        mitad = (MAX_CARACTERES - len(separador)) // 2
         logger.warning(
-            "Texto truncado a %d caracteres (original: %d)",
-            MAX_CARACTERES,
+            "Texto truncado a cabecera+cola (original: %d caracteres)",
             len(texto),
         )
-        return texto[:MAX_CARACTERES]
+        return f"{texto[:mitad]}{separador}{texto[-mitad:]}"
+
+    def _loguear_uso_tokens(self, response) -> None:
+        """Loguea el consumo de tokens de la llamada a Gemini si está disponible."""
+        metadata = getattr(response, "usage_metadata", None)
+        if metadata is None:
+            return
+        logger.info(
+            "Tokens Gemini: %s entrada, %s salida",
+            getattr(metadata, "prompt_token_count", "?"),
+            getattr(metadata, "candidates_token_count", "?"),
+        )
 
     def _intentar_generar(
         self, prompt: str, config: types.GenerateContentConfig
@@ -115,6 +127,7 @@ class GeneradorResumenes:
                     intento,
                     self._max_reintentos,
                 )
+                self._loguear_uso_tokens(response)
                 return response.text
             except Exception as e:
                 ultima_excepcion = e

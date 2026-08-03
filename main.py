@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import sys
@@ -47,6 +48,14 @@ def _cargar_configuracion() -> _Config:
         )
         sys.exit(1)
 
+    if len(email_password) < 16:
+        logger.error(
+            "EMAIL_PASSWORD parece inválido: %d caracteres. "
+            "Debe ser una app password de Gmail (16 caracteres, requiere 2FA).",
+            len(email_password),
+        )
+        sys.exit(1)
+
     return _Config(
         gemini_api_key=gemini_api_key,
         email_user=email_user,
@@ -61,16 +70,36 @@ def validar_html(html: str) -> bool:
     return bool(html.strip()) and html.strip().startswith("<")
 
 
-def main() -> None:
+def _parsear_fecha(s: str) -> date:
+    """Valida que el argumento --fecha tenga formato YYYY-MM-DD."""
     try:
-        _ejecutar_pipeline()
+        return date.fromisoformat(s)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(
+            f"Fecha inválida '{s}'. Usa el formato YYYY-MM-DD."
+        ) from e
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="Radar Diario Oficial",
+        description="Extrae noticias políticas del Diario Oficial y envía boletín.",
+    )
+    parser.add_argument(
+        "--fecha",
+        type=_parsear_fecha,
+        help="Fecha (YYYY-MM-DD) para procesar una edición pasada (backfill).",
+    )
+    args = parser.parse_args()
+    try:
+        _ejecutar_pipeline(fecha=args.fecha)
     except Exception:
         logger.exception("Error fatal en el pipeline")
         sys.exit(1)
 
 
-def _ejecutar_pipeline() -> None:
-    """Orquesta extracción → resumen → envío del boletín del Diario Oficial de hoy."""
+def _ejecutar_pipeline(fecha: date | None = None) -> None:
+    """Orquesta extracción → resumen → envío del boletín del Diario Oficial."""
     configurar_logging()
     load_dotenv()
     config = _cargar_configuracion()
@@ -83,16 +112,22 @@ def _ejecutar_pipeline() -> None:
         destinatario=config.email_destinatario,
     )
 
-    hoy = date.today()
-    logger.info("Iniciando pipeline para %s", hoy.isoformat())
+    objetivo = fecha or date.today()
+    logger.info("Iniciando pipeline para %s", objetivo.isoformat())
 
-    texto_diario = scraper.obtener_texto_diario(hoy)
-    fecha_publicacion = hoy
+    texto_diario = scraper.obtener_texto_diario(objetivo)
+    fecha_publicacion = objetivo
 
     if texto_diario is None:
+        if fecha is not None:
+            logger.info(
+                "No se encontró publicación para %s en modo backfill. Finalizando.",
+                objetivo.isoformat(),
+            )
+            return
         logger.info(
             "No se encontró publicación para hoy (%s). Buscando última disponible...",
-            hoy.isoformat(),
+            objetivo.isoformat(),
         )
         resultado = scraper.obtener_texto_ultima_publicacion()
         if resultado is None:

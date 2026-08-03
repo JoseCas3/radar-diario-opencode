@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -175,3 +176,36 @@ class TestGeneradorResumenes:
 
         assert resultado == "<h1>Éxito</h1>"
         assert mock_sleep.call_count == fallos_esperados
+
+    def test_loguear_uso_tokens(self, texto_diario_mock, caplog):
+        mock_response = MagicMock()
+        mock_response.text = "<h1>Ok</h1>"
+        mock_response.usage_metadata.prompt_token_count = 1500
+        mock_response.usage_metadata.candidates_token_count = 300
+
+        with patch("llm.genai.Client") as mock_client_class, caplog.at_level(
+            logging.INFO, logger="llm"
+        ):
+            mock_client = MagicMock()
+            mock_client.models.generate_content.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            generador = GeneradorResumenes(api_key="test-key")
+            generador.generar_resumen(texto_diario_mock)
+
+        assert any("1500 entrada" in r.message for r in caplog.records)
+
+    def test_loguear_uso_tokens_sin_metadata_no_falla(self, texto_diario_mock):
+        mock_response = MagicMock()
+        mock_response.text = "<h1>Ok</h1>"
+        mock_response.usage_metadata = None
+
+        with patch("llm.genai.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.models.generate_content.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            generador = GeneradorResumenes(api_key="test-key")
+            resultado = generador.generar_resumen(texto_diario_mock)
+
+        assert resultado == "<h1>Ok</h1>"

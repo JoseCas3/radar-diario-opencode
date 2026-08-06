@@ -6,8 +6,68 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from scraper import DiarioOficialScraper
+from scraper import DiarioOficialScraper, MAX_CARACTERES_PDF
 from tests.conftest import crear_mock_response
+
+
+class TestLimpiarTexto:
+    @pytest.fixture
+    def scraper(self):
+        return DiarioOficialScraper()
+
+    def test_une_palabras_partidas(self, scraper):
+        texto = "enco-\nmendaci\u00f3n presupuestaria"
+        assert scraper._limpiar_texto(texto) == "encomendaci\u00f3n presupuestaria"
+
+    def test_no_une_guion_legitimo(self, scraper):
+        texto = "Art. 1-\nSe reforma el art\u00edculo."
+        assert scraper._limpiar_texto(texto) == "Art. 1-\nSe reforma el art\u00edculo."
+
+    def test_quita_numero_de_pagina(self, scraper):
+        texto = "Contenido de la noticia.\n15\n"
+        assert scraper._limpiar_texto(texto) == "Contenido de la noticia."
+
+    def test_quita_membrete_encabezado(self, scraper):
+        texto = "REP\u00daBLICA DE EL SALVADOR\nDIARIO OFICIAL\nDecreto de hoy."
+        assert scraper._limpiar_texto(texto) == "Decreto de hoy."
+
+    def test_colapsa_lineas_en_blanco(self, scraper):
+        texto = "Primera l\u00ednea.\n\n\n\nSegunda l\u00ednea."
+        assert scraper._limpiar_texto(texto) == "Primera l\u00ednea.\nSegunda l\u00ednea."
+
+    def test_quita_linea_solo_espacios(self, scraper):
+        texto = "  \t\nNoticia real."
+        assert scraper._limpiar_texto(texto) == "Noticia real."
+
+
+class TestUnirLimitado:
+    def test_cabe_todo_sin_recortar(self):
+        scraper = DiarioOficialScraper()
+        paginas = ["p1", "p2", "p3"]
+        assert scraper._unir_limitado(paginas, max_caracteres=100) == "p1\np2\np3"
+
+    def test_recorta_paginas_completas(self):
+        scraper = DiarioOficialScraper()
+        paginas = ["aaaaa", "bbbbb", "ccccc"]
+        texto = scraper._unir_limitado(paginas, max_caracteres=10)
+        assert texto == "aaaaa"
+
+    def test_presupuesto_considera_saltos_de_linea(self):
+        scraper = DiarioOficialScraper()
+        paginas = ["aaaaa", "bbbbb", "ccccc"]
+        texto = scraper._unir_limitado(paginas, max_caracteres=12)
+        assert texto == "aaaaa\nbbbbb"
+
+    def test_incluye_siempre_la_primera_pagina(self):
+        scraper = DiarioOficialScraper()
+        paginas = ["a" * 50, "b"]
+        texto = scraper._unir_limitado(paginas, max_caracteres=5)
+        assert texto == "a" * 50
+
+    def test_paginas_vacias(self):
+        scraper = DiarioOficialScraper()
+        assert scraper._unir_limitado([], max_caracteres=100) == ""
+        assert scraper._unir_limitado([""], max_caracteres=100) == ""
 
 
 class TestDiarioOficialScraper:
@@ -179,6 +239,48 @@ class TestDiarioOficialScraper:
 
         with pytest.raises(Exception):
             scraper._extraer_texto_pdf(pdf_invalido)
+
+    def test_extraer_texto_pdf_devuelve_paginas_limpias(self):
+        scraper = DiarioOficialScraper()
+        with patch("scraper.PdfReader") as mock_reader_class:
+            paginas_mock = [MagicMock(), MagicMock()]
+            paginas_mock[0].extract_text.return_value = "Decreto uno.\n12\n"
+            paginas_mock[1].extract_text.return_value = ""
+            mock_reader_class.return_value.pages = paginas_mock
+
+            resultado = scraper._extraer_texto_pdf(b"pdf")
+
+        assert resultado == ["Decreto uno."]
+
+    def test_obtener_texto_diario_recorta_por_paginas(self, fecha_hoy):
+        with patch("scraper.requests.Session"), patch(
+            "scraper.PdfReader"
+        ) as mock_reader_class:
+            paginas_mock = [MagicMock(), MagicMock()]
+            paginas_mock[0].extract_text.return_value = "P\u00e1gina uno con contenido."
+            paginas_mock[1].extract_text.return_value = "P\u00e1gina dos con noticia."
+            mock_reader_class.return_value.pages = paginas_mock
+
+            scraper = DiarioOficialScraper()
+            scraper._reintentar_http = MagicMock(
+                side_effect=[
+                    crear_mock_response(json_data=[{"month": "5"}]),
+                    crear_mock_response(
+                        json_data=[
+                            {
+                                "Id": 42,
+                                "FechaInicio": "2026-05-26",
+                                "NombreArchivo": "diario-2026-05-26.pdf",
+                            }
+                        ]
+                    ),
+                    crear_mock_response(content=b"fake-pdf"),
+                ]
+            )
+            resultado = scraper.obtener_texto_diario(fecha_hoy, max_caracteres=20)
+
+        assert "P\u00e1gina uno" in resultado
+        assert "P\u00e1gina dos" not in resultado
 
     def test_descargar_pdf_url_correcta(self):
         scraper = DiarioOficialScraper(base_url="https://api.ejemplo.sv")

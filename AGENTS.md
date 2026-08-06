@@ -5,7 +5,7 @@ Pipeline automatizado: obtiene PDF del Diario Oficial de El Salvador (vía API R
 ## Stack
 
 - Python 3.11, Docker, GitHub Actions (cron diario 5:00 AM SV)
-- `requests` + `PyPDF2` (descarga y extrae PDFs)
+- `requests` + `pypdf` (descarga y extrae PDFs)
 - `google-genai` (Gemini 2.5 Flash) — genera resumen HTML
 - `smtplib` Gmail (envío de boletín)
 - Sin Selenium, sin Playwright, sin BeautifulSoup (innecesarios)
@@ -14,7 +14,7 @@ Pipeline automatizado: obtiene PDF del Diario Oficial de El Salvador (vía API R
 
 | Módulo | Archivo | Clase | Rol |
 |--------|---------|-------|-----|
-| Extracción | `scraper.py` | `DiarioOficialScraper` | POST a API → filtra hoy → descarga PDF → PyPDF2 extrae texto |
+| Extracción | `scraper.py` | `DiarioOficialScraper` | POST a API → filtra hoy → descarga PDF → pypdf extrae texto limpio por páginas |
 | Procesamiento | `llm.py` | `GeneradorResumenes` | Prompt → Gemini → HTML |
 | Notificación | `email_sender.py` | `EmailNotifier` | Envía boletín vía Gmail SMTP |
 
@@ -97,13 +97,13 @@ Ejecutar: `python main.py`
 
 ## Estado actual del código
 
-- **scraper.py**: Funcional — API real (`meses-disponibles`, `diarios-disponibles`, `/seleccion/{Id}`), PyPDF2 con soporte AES, reintentos HTTP con backoff exponencial (3 intentos), sin BeautifulSoup.
-- **llm.py**: Funcional — Gemini 2.5 Flash, prompt anti-alucinación con `temperature=0.1`, reintentos con backoff, truncado a 800K caracteres, validación de respuesta vacía.
+- **scraper.py**: Funcional — API real (`meses-disponibles`, `diarios-disponibles`, `/seleccion/{Id}`), pypdf con soporte AES, limpieza por página (`_limpiar_texto`: une guiones, normaliza blancos, quita membrete/página), recorte por páginas completas (`_unir_limitado`) sin partir noticias, reintentos HTTP con backoff exponencial (3 intentos), sin BeautifulSoup.
+- **llm.py**: Funcional — Gemini 2.5 Flash, prompt anti-alucinación con `temperature=0.1`, reintentos con backoff, tope defensivo de 1M caracteres (el recorte fino lo hace `scraper` por páginas), validación de respuesta vacía.
 - **email_sender.py**: Funcional — SMTP Gmail con reintentos y backoff, `ehlo()` post-TLS, MIME multipart con HTML + texto plano alternativo.
 - **main.py**: Orquesta con `logging` estructurado, `load_dotenv()` solo aquí, validación HTML del boletín, try/except global con `logger.exception`. Soporta `--fecha YYYY-MM-DD` (backfill), `--estado RUTA` y `--fuerza`. Implementa **dedupe anti-duplicados** vía `estado.json` (guarda la última fecha enviada; si la publicación coincide, salta sin enviar ni consumir tokens de Gemini).
 - **CI/CD**: GitHub Actions con cron diario 5:00 AM SV, paso de tests antes del build, `concurrency` para evitar duplicados, timeout 15 min, valida secrets, y committea `estado.json` de vuelta al repo tras cada corrida para persistir la memoria entre corridas efímeras.
 - **Docker**: Alpine 3.11, `PYTHONUNBUFFERED=1`, `.dockerignore`, `*.py` wildcard. En CI se monta `estado.json` del host y la corrida usa `-u root` para poder escribirlo.
-- **Tests**: 41 tests en 5 archivos (`test_scraper.py`, `test_llm.py`, `test_email.py`, `test_main.py`, `conftest.py`), 92% de cobertura. Sin side effects al importar.
+- **Tests**: 71 tests en 5 archivos (`test_scraper.py`, `test_llm.py`, `test_email.py`, `test_main.py`, `conftest.py`), 90% de cobertura. Sin side effects al importar.
 
 ## Próximas tareas (opcionales)
 

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 
 import requests
-from PyPDF2 import PdfReader
-from PyPDF2.errors import PyPdfError
+from pypdf import PdfReader
+from pypdf.errors import PyPdfError
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ BASE_URL = "https://www.diariooficial.gob.sv"
 TIMEOUT_SEGUNDOS = 30
 MAX_REINTENTOS = 3
 BACKOFF_INICIAL = 2
+MAX_CARACTERES_PDF = 1_000_000
 
 
 @dataclass
@@ -38,7 +40,11 @@ class DiarioOficialScraper:
         self._sesion = requests.Session()
         self._sesion.headers.update({"User-Agent": "RadarDiarioOficial/1.0"})
 
-    def obtener_texto_diario(self, fecha: date | None = None) -> str | None:
+    def obtener_texto_diario(
+        self,
+        fecha: date | None = None,
+        max_caracteres: int = MAX_CARACTERES_PDF,
+    ) -> str | None:
         """Obtiene el texto completo del Diario Oficial para la fecha dada (hoy por defecto).
 
         Retorna None si no existe publicación para la fecha solicitada.
@@ -51,11 +57,20 @@ class DiarioOficialScraper:
             )
             return None
         pdf_bytes = self._descargar_pdf(publicacion.id)
-        texto = self._extraer_texto_pdf(pdf_bytes)
-        logger.info("Texto extraído del Diario Oficial: %d caracteres", len(texto))
+        paginas = self._extraer_texto_pdf(pdf_bytes)
+        texto = self._unir_limitado(paginas, max_caracteres)
+        logger.info(
+            "Texto extraído del Diario Oficial %s: %d caracteres en %d páginas",
+            fecha_obj.isoformat(),
+            len(texto),
+            len(paginas),
+        )
         return texto
 
-    def obtener_texto_ultima_publicacion(self) -> tuple[str, date] | None:
+    def obtener_texto_ultima_publicacion(
+        self,
+        max_caracteres: int = MAX_CARACTERES_PDF,
+    ) -> tuple[str, date] | None:
         """Obtiene el texto de la publicación más reciente disponible.
 
         Retorna una tupla (texto, fecha_publicacion) o None si no hay publicaciones.
@@ -69,11 +84,13 @@ class DiarioOficialScraper:
             return None
         fecha_pub = date.fromisoformat(publicacion.fecha_inicio)
         pdf_bytes = self._descargar_pdf(publicacion.id)
-        texto = self._extraer_texto_pdf(pdf_bytes)
+        paginas = self._extraer_texto_pdf(pdf_bytes)
+        texto = self._unir_limitado(paginas, max_caracteres)
         logger.info(
-            "Texto extraído de última publicación (%s): %d caracteres",
+            "Texto extraído de última publicación (%s): %d caracteres en %d páginas",
             publicacion.fecha_inicio,
             len(texto),
+            len(paginas),
         )
         return texto, fecha_pub
 
@@ -207,17 +224,83 @@ class DiarioOficialScraper:
                     )
                     raise
 
-    def _extraer_texto_pdf(self, pdf_bytes: bytes) -> str:
-        """Extrae el texto de un PDF en memoria usando PyPDF2."""
+    def _extraer_texto_pdf(self, pdf_bytes: bytes) -> list[str]:
+        """Extrae el texto de cada página de un PDF en memoria usando pypdf.
+
+        Retorna una lista con el texto limpio de cada página que sí tiene contenido.
+        """
         try:
             with BytesIO(pdf_bytes) as stream:
                 reader = PdfReader(stream)
-                paginas_texto: list[str] = []
-                for pagina in reader.pages:
-                    texto = pagina.extract_text()
-                    if texto:
-                        paginas_texto.append(texto)
-                return "\n".join(paginas_texto)
+                paginas: list[str] = []
+                for numero, pagina in enumerate(reader.pages, start=1):
+                    cruda = pagina.extract_text() or ""
+                    limpia = self._limpiar_texto(cruda)
+                    if limpia:
+                        paginas.append(limpia)
+                    else:
+                        logger.warning(
+                            "Página %d sin texto extraíble (%d de %d totales)",
+                            numero,
+                            len(paginas),
+                            len(reader.pages),
+                        )
+                logger.info(
+                    "Páginas extraídas del PDF: %d de %d totales",
+                    len(paginas),
+                    len(reader.pages),
+                )
+                return paginas
         except (ValueError, TypeError, OSError, PyPdfError) as e:
             logger.error("Error al extraer texto del PDF: %s", e)
             raise
+
+    def _limpiar_texto(self, texto: str) -> str:
+        """Limpia el texto de una página: une palabras partidas, normaliza blancos y quita ruido.
+
+        Solo elimina líneas de ruido seguro (números de página y membretes), nunca contenido único.
+        """
+        lineas_filtradas: list[str] = []
+        for linea in texto.splitlines():
+            linea_limpia = linea.strip()
+            if not linea_limpia or self._es_ruido_repetido(linea_limpia):
+                continue
+            lineas_filtradas.append(linea_limpia)
+        unido = "\n".join(lineas_filtradas)
+        unido = re.sub(r"[ \t]{2,}", " ", unido)
+        unido = re.sub(r"([a-záéíóúüñ])-\n([a-záéíóúüñ])", r"\1\2", unido)
+        return unido
+
+    def _es_ruido_repetido(self, linea: str) -> bool:
+        """Determina si una línea es ruido repetitivo del membrete del Diario Oficial."""
+        if re.fullmatch(r"\d{1,4}", linea):
+            return True
+        if re.fullmatch(r"p[áa]g(?:\.|ina)?\.?\s*\d{1,4}", linea, re.IGNORECASE):
+            return True
+        if linea in ("REPÚBLICA DE EL SALVADOR", "REPUBLICA DE EL SALVADOR"):
+            return True
+        if linea == "DIARIO OFICIAL":
+            return True
+        return False
+
+    def _unir_limitado(
+        self, paginas: list[str], max_caracteres: int = MAX_CARACTERES_PDF
+    ) -> str:
+        """Une páginas completas hasta alcanzar max_caracteres, sin partir una página.
+
+        Siempre incluye al menos la primera página; recorta el resto de forma entera.
+        """
+        partes: list[str] = []
+        total = 0
+        for pagina in paginas:
+            if partes and total + len(pagina) + 1 > max_caracteres:
+                logger.warning(
+                    "Texto recortado: %d de %d páginas (límite %d caracteres)",
+                    len(partes),
+                    len(paginas),
+                    max_caracteres,
+                )
+                break
+            partes.append(pagina)
+            total += len(pagina) + 1
+        return "\n".join(partes)

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 MODELO_POR_DEFECTO = "gemini-2.5-flash"
 MAX_REINTENTOS = 3
 BACKOFF_INICIAL = 2
-MAX_CARACTERES = 800_000
+MAX_CARACTERES = 1_000_000
 
 PROMPT_SISTEMA = """\
 Eres un asistente editorial especializado para el Jefe de Redacción Política de un \

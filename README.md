@@ -6,7 +6,7 @@ Pipeline automatizado que descarga el Diario Oficial de El Salvador, extrae noti
 
 El flujo es: **extraer → resumir → enviar**.
 
-1. **Extracción** (`scraper.py`): consulta la API del Diario Oficial, filtra la publicación de hoy y extrae el texto del PDF con PyPDF2.
+1. **Extracción** (`scraper.py`): consulta la API del Diario Oficial, filtra la publicación de hoy, extrae el texto del PDF con pypdf y lo limpia página por página (une palabras partidas, elimina membretes y números de página).
 2. **Resumen** (`llm.py`): Gemini 2.5 Flash genera un boletín HTML con las noticias políticas relevantes.
 3. **Envío** (`email_sender.py`): se envía el boletín por SMTP de Gmail (HTML + texto plano alternativo).
 4. **Memoria anti-duplicados**: cada envío exitoso se registra en `estado.json`. Si un día la misma edición vuelve a aparecer (por ejemplo, cuando el Diario no publica por varios días y se usa la última edición disponible), **no se reenvía**.
@@ -84,4 +84,4 @@ El mount `-v estado.json:/app/estado.json` (con `-u root` para poder escribir el
 python -m pytest tests/ -v --cov=. --cov-report=term-missing
 ```
 
-58 tests, ~89% de cobertura.
+71 tests, ~90% de cobertura.

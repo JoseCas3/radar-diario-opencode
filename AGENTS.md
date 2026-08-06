@@ -100,14 +100,20 @@ Ejecutar: `python main.py`
 - **scraper.py**: Funcional — API real (`meses-disponibles`, `diarios-disponibles`, `/seleccion/{Id}`), PyPDF2 con soporte AES, reintentos HTTP con backoff exponencial (3 intentos), sin BeautifulSoup.
 - **llm.py**: Funcional — Gemini 2.5 Flash, prompt anti-alucinación con `temperature=0.1`, reintentos con backoff, truncado a 800K caracteres, validación de respuesta vacía.
 - **email_sender.py**: Funcional — SMTP Gmail con reintentos y backoff, `ehlo()` post-TLS, MIME multipart con HTML + texto plano alternativo.
-- **main.py**: Orquesta con `logging` estructurado, `load_dotenv()` solo aquí, validación HTML del boletín, try/except global con `logger.exception`.
-- **CI/CD**: GitHub Actions con cron diario 5:00 AM SV, paso de tests antes del build, `concurrency` para evitar duplicados, timeout 15 min.
-- **Docker**: Alpine 3.11, `PYTHONUNBUFFERED=1`, `.dockerignore`, `*.py` wildcard.
+- **main.py**: Orquesta con `logging` estructurado, `load_dotenv()` solo aquí, validación HTML del boletín, try/except global con `logger.exception`. Soporta `--fecha YYYY-MM-DD` (backfill), `--estado RUTA` y `--fuerza`. Implementa **dedupe anti-duplicados** vía `estado.json` (guarda la última fecha enviada; si la publicación coincide, salta sin enviar ni consumir tokens de Gemini).
+- **CI/CD**: GitHub Actions con cron diario 5:00 AM SV, paso de tests antes del build, `concurrency` para evitar duplicados, timeout 15 min, valida secrets, y committea `estado.json` de vuelta al repo tras cada corrida para persistir la memoria entre corridas efímeras.
+- **Docker**: Alpine 3.11, `PYTHONUNBUFFERED=1`, `.dockerignore`, `*.py` wildcard. En CI se monta `estado.json` del host y la corrida usa `-u root` para poder escribirlo.
 - **Tests**: 41 tests en 5 archivos (`test_scraper.py`, `test_llm.py`, `test_email.py`, `test_main.py`, `conftest.py`), 92% de cobertura. Sin side effects al importar.
 
 ## Próximas tareas (opcionales)
 
-1. **Soporte para backfill** — flag `--fecha YYYY-MM-DD` en `main.py` para procesar fechas pasadas.
-2. **Notificación de fallos** — alerta por email alternativo o GitHub Issue si el pipeline falla.
-3. **Estrategia de truncado inteligente** — preservar secciones del final del PDF en vez de cortar al inicio.
-4. **Métricas de uso de Gemini** — loguear tokens consumidos por corrida.
+1. **Notificación de fallos** — alerta por email alternativo o GitHub Issue si el pipeline falla.
+2. **Aviso corto "sin novedades"** — en días sin publicación, envío opcional de un correo breve en vez de silencio total (hoy el dedupe hace que no se envíe nada).
+3. **Historial de ediciones** — almacenar más de una fecha en `estado.json` para auditoría de qué se ha enviado.
+
+## Tareas completadas (historial)
+
+- **Backfill** — flag `--fecha YYYY-MM-DD` en `main.py` para procesar fechas pasadas.
+- **Truncado inteligente** — conservar cabecera+cola del PDF en vez de cortar al inicio.
+- **Métricas de uso de Gemini** — loguear tokens consumidos por corrida.
+- **Dedupe anti-duplicados** — memoria persistente en `estado.json` commit-teado al repo tras cada corrida CI.

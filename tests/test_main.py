@@ -3,12 +3,17 @@ from __future__ import annotations
 import logging
 import os
 from argparse import ArgumentTypeError
-from unittest.mock import patch
+from datetime import date
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+import main
 from main import (
     _cargar_configuracion,
+    _cargar_estado,
+    _guardar_estado,
+    _ejecutar_pipeline,
     configurar_logging,
     validar_html,
     _Config,
@@ -105,3 +110,105 @@ class TestParsearFecha:
     def test_fecha_invalida(self):
         with pytest.raises(ArgumentTypeError):
             _parsear_fecha("14/07/2026")
+
+
+class TestEstado:
+    def test_archivo_inexistente(self, tmp_path):
+        estado = _cargar_estado(str(tmp_path / "no_existe.json"))
+        assert estado == {"ultima_fecha_enviada": None}
+
+    def test_json_valido(self, tmp_path):
+        ruta = tmp_path / "estado.json"
+        ruta.write_text('{"ultima_fecha_enviada": "2026-05-26"}', encoding="utf-8")
+        assert _cargar_estado(str(ruta)) == {"ultima_fecha_enviada": "2026-05-26"}
+
+    def test_json_corrupto(self, tmp_path):
+        ruta = tmp_path / "estado.json"
+        ruta.write_text("{no valido", encoding="utf-8")
+        assert _cargar_estado(str(ruta)) == {"ultima_fecha_enviada": None}
+
+    def test_json_sin_clave(self, tmp_path):
+        ruta = tmp_path / "estado.json"
+        ruta.write_text('{"otra_clave": 1}', encoding="utf-8")
+        estado = _cargar_estado(str(ruta))
+        assert estado["ultima_fecha_enviada"] is None
+
+    def test_guardar_y_recargar(self, tmp_path):
+        ruta = tmp_path / "estado.json"
+        _guardar_estado(str(ruta), {"ultima_fecha_enviada": "2026-05-26"})
+        assert _cargar_estado(str(ruta))["ultima_fecha_enviada"] == "2026-05-26"
+
+
+class TestEjecutarPipeline:
+    @pytest.fixture
+    def pipeline_mocks(self, monkeypatch, texto_diario_mock, html_boletin_mock):
+        monkeypatch.setattr(main, "configurar_logging", lambda: None)
+        monkeypatch.setattr(main, "load_dotenv", lambda: None)
+        config = MagicMock()
+        config.base_url = "https://example.com"
+        config.gemini_api_key = "key"
+        config.email_user = "u@t.com"
+        config.email_password = "x" * 16
+        config.email_destinatario = "d@t.com"
+        monkeypatch.setattr(main, "_cargar_configuracion", lambda: config)
+
+        scraper = MagicMock()
+        scraper.obtener_texto_diario.return_value = texto_diario_mock
+        generador = MagicMock()
+        generador.generar_resumen.return_value = html_boletin_mock
+        notificador = MagicMock()
+
+        monkeypatch.setattr(main, "DiarioOficialScraper", lambda **k: scraper)
+        monkeypatch.setattr(main, "GeneradorResumenes", lambda **k: generador)
+        monkeypatch.setattr(main, "EmailNotifier", lambda **k: notificador)
+        return scraper, generador, notificador
+
+    def test_salta_si_edicion_ya_enviada(self, pipeline_mocks, tmp_path):
+        _, generador, notificador = pipeline_mocks
+        ruta = tmp_path / "estado.json"
+        _guardar_estado(str(ruta), {"ultima_fecha_enviada": "2026-05-26"})
+
+        _ejecutar_pipeline(fecha=date(2026, 5, 26), ruta_estado=str(ruta))
+
+        generador.generar_resumen.assert_not_called()
+        notificador.enviar_boletin.assert_not_called()
+
+    def test_envia_y_actualiza_estado(self, pipeline_mocks, tmp_path):
+        _, generador, notificador = pipeline_mocks
+        ruta = tmp_path / "estado.json"
+        _guardar_estado(str(ruta), {"ultima_fecha_enviada": "2026-05-25"})
+
+        _ejecutar_pipeline(fecha=date(2026, 5, 26), ruta_estado=str(ruta))
+
+        generador.generar_resumen.assert_called_once()
+        notificador.enviar_boletin.assert_called_once()
+        assert _cargar_estado(str(ruta))["ultima_fecha_enviada"] == "2026-05-26"
+
+    def test_fuerza_reenvia_aun_si_coincide(self, pipeline_mocks, tmp_path):
+        _, generador, notificador = pipeline_mocks
+        ruta = tmp_path / "estado.json"
+        _guardar_estado(str(ruta), {"ultima_fecha_enviada": "2026-05-26"})
+
+        _ejecutar_pipeline(
+            fecha=date(2026, 5, 26), ruta_estado=str(ruta), fuerza=True
+        )
+
+        generador.generar_resumen.assert_called_once()
+        notificador.enviar_boletin.assert_called_once()
+
+    def test_fallback_no_repite_ultima_publicacion(
+        self, pipeline_mocks, tmp_path, texto_diario_mock
+    ):
+        scraper, generador, notificador = pipeline_mocks
+        scraper.obtener_texto_diario.return_value = None
+        scraper.obtener_texto_ultima_publicacion.return_value = (
+            texto_diario_mock,
+            date(2026, 5, 26),
+        )
+        ruta = tmp_path / "estado.json"
+        _guardar_estado(str(ruta), {"ultima_fecha_enviada": "2026-05-26"})
+
+        _ejecutar_pipeline(ruta_estado=str(ruta))
+
+        generador.generar_resumen.assert_not_called()
+        notificador.enviar_boletin.assert_not_called()

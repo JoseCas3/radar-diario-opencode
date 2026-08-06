@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -70,6 +71,30 @@ def validar_html(html: str) -> bool:
     return bool(html.strip()) and html.strip().startswith("<")
 
 
+def _cargar_estado(ruta_estado: str) -> dict:
+    """Carga la última fecha enviada. Devuelve el estado por defecto si falta o es inválido."""
+    if not os.path.exists(ruta_estado):
+        return {"ultima_fecha_enviada": None}
+    try:
+        with open(ruta_estado, encoding="utf-8") as archivo:
+            datos = json.load(archivo)
+        if "ultima_fecha_enviada" not in datos:
+            datos["ultima_fecha_enviada"] = None
+        return datos
+    except (OSError, ValueError) as e:
+        logger.warning("No se pudo leer el estado en %s: %s", ruta_estado, e)
+        return {"ultima_fecha_enviada": None}
+
+
+def _guardar_estado(ruta_estado: str, estado: dict) -> None:
+    """Persiste el estado (última fecha enviada) en formato JSON."""
+    try:
+        with open(ruta_estado, "w", encoding="utf-8") as archivo:
+            json.dump(estado, archivo, ensure_ascii=False, indent=2)
+    except OSError as e:
+        logger.warning("No se pudo guardar el estado en %s: %s", ruta_estado, e)
+
+
 def _parsear_fecha(s: str) -> date:
     """Valida que el argumento --fecha tenga formato YYYY-MM-DD."""
     try:
@@ -90,15 +115,29 @@ def main() -> None:
         type=_parsear_fecha,
         help="Fecha (YYYY-MM-DD) para procesar una edición pasada (backfill).",
     )
+    parser.add_argument(
+        "--estado",
+        default="estado.json",
+        help="Ruta al archivo de estado con la última fecha enviada.",
+    )
+    parser.add_argument(
+        "--fuerza",
+        action="store_true",
+        help="Reenviar aunque la edición ya haya sido enviada (ignora el dedupe).",
+    )
     args = parser.parse_args()
     try:
-        _ejecutar_pipeline(fecha=args.fecha)
+        _ejecutar_pipeline(fecha=args.fecha, ruta_estado=args.estado, fuerza=args.fuerza)
     except Exception:
         logger.exception("Error fatal en el pipeline")
         sys.exit(1)
 
 
-def _ejecutar_pipeline(fecha: date | None = None) -> None:
+def _ejecutar_pipeline(
+    fecha: date | None = None,
+    ruta_estado: str = "estado.json",
+    fuerza: bool = False,
+) -> None:
     """Orquesta extracción → resumen → envío del boletín del Diario Oficial."""
     configurar_logging()
     load_dotenv()
@@ -136,6 +175,14 @@ def _ejecutar_pipeline(fecha: date | None = None) -> None:
         texto_diario, fecha_publicacion = resultado
         logger.info("Usando publicación del %s", fecha_publicacion.isoformat())
 
+    estado = _cargar_estado(ruta_estado)
+    if not fuerza and estado.get("ultima_fecha_enviada") == fecha_publicacion.isoformat():
+        logger.info(
+            "La edición del %s ya fue enviada anteriormente. Saltando sin enviar.",
+            fecha_publicacion.isoformat(),
+        )
+        return
+
     html_boletin = generador.generar_resumen(
         texto_diario, fecha=fecha_publicacion.strftime("%d/%m/%Y")
     )
@@ -144,6 +191,7 @@ def _ejecutar_pipeline(fecha: date | None = None) -> None:
         sys.exit(1)
 
     notificador.enviar_boletin(html_boletin, fecha=fecha_publicacion)
+    _guardar_estado(ruta_estado, {"ultima_fecha_enviada": fecha_publicacion.isoformat()})
     logger.info("Pipeline completado exitosamente para %s", fecha_publicacion.isoformat())
 
 
